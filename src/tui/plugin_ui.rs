@@ -142,8 +142,19 @@ const DIVIDER_WIDTH: usize = 32;
 /// heard of. Entries are blank-line separated, and an entry that renders
 /// nothing contributes no separator (so a malformed payload leaves no gap).
 pub fn pane_lines(snapshot: &UiSnapshot, session_id: &str, theme: &Theme) -> Vec<Line<'static>> {
+    stack_pane_entries(session_entries(snapshot, UiSlot::Pane, session_id), theme)
+}
+
+/// Render a run of pane entries to lines, each entry's block body separated
+/// from the next by a blank line. An entry that renders nothing contributes no
+/// separator, so a malformed payload leaves no gap. Shared by the per-session
+/// `pane_lines` and the global `home_pane_lines`.
+fn stack_pane_entries<'a>(
+    entries: impl Iterator<Item = &'a UiEntry>,
+    theme: &Theme,
+) -> Vec<Line<'static>> {
     let mut out: Vec<Line<'static>> = Vec::new();
-    for entry in session_entries(snapshot, UiSlot::Pane, session_id) {
+    for entry in entries {
         let lines = pane_entry_lines(entry, theme);
         if lines.is_empty() {
             continue;
@@ -156,22 +167,14 @@ pub fn pane_lines(snapshot: &UiSnapshot, session_id: &str, theme: &Theme) -> Vec
     out
 }
 
-/// Prototype: render global `HomePane` entries (no session_id) with the same
-/// block vocabulary as a session `Pane`. This is the reusable global-docked-pane
-/// surface a diagnostics-style plugin targets in the plain home view.
+/// Render global `HomePane` entries (session-less) with the same block
+/// vocabulary as a session `Pane`, the host-wide docked surface a plugin
+/// targets when its panel is not tied to a session. Entries stack in snapshot
+/// (insertion) order, so several plugins compose without colliding. `HomePane`
+/// reuses `PanePayload`, so a payload may carry `default_location`; it is a
+/// session-dock concept and is ignored here.
 pub fn home_pane_lines(snapshot: &UiSnapshot, theme: &Theme) -> Vec<Line<'static>> {
-    let mut out: Vec<Line<'static>> = Vec::new();
-    for entry in global_entries(snapshot, UiSlot::HomePane) {
-        let lines = pane_entry_lines(entry, theme);
-        if lines.is_empty() {
-            continue;
-        }
-        if !out.is_empty() {
-            out.push(Line::default());
-        }
-        out.extend(lines);
-    }
-    out
+    stack_pane_entries(global_entries(snapshot, UiSlot::HomePane), theme)
 }
 
 /// One pane entry: a heading naming the pane, then an ordered `blocks` list when
@@ -431,23 +434,16 @@ fn sparkline_lines(block: &Value, indent: usize, theme: &Theme) -> Vec<Line<'sta
     let bands = parse_bands(block);
     let base_tone = block_tone(block);
 
-    let spans: Vec<Span<'static>> = values
-        .iter()
-        .map(|&v| {
-            let frac = (v / max).clamp(0.0, 1.0);
-            let idx = ((frac * (SPARK_GLYPHS.len() as f64 - 1.0)).round()) as usize;
-            let glyph = SPARK_GLYPHS[idx.min(SPARK_GLYPHS.len() - 1)];
-            let tone = band_tone(&bands, v).or(base_tone);
-            Span::styled(glyph.to_string(), tone_style(tone, theme))
-        })
-        .collect();
-    let mut line = Vec::with_capacity(spans.len() + 1);
-    if indent > 0 {
-        line.push(Span::raw(" ".repeat(indent)));
-    }
-    line.extend(spans);
+    let mut spans = indent_span(indent);
+    spans.extend(values.iter().map(|&v| {
+        // frac is clamped to 0..=1, so idx lands in 0..=len-1 without a guard.
+        let frac = (v / max).clamp(0.0, 1.0);
+        let idx = (frac * (SPARK_GLYPHS.len() as f64 - 1.0)).round() as usize;
+        let tone = band_tone(&bands, v).or(base_tone);
+        Span::styled(SPARK_GLYPHS[idx].to_string(), tone_style(tone, theme))
+    }));
 
-    let mut out = vec![Line::from(line)];
+    let mut out = vec![Line::from(spans)];
     if let Some(caption) = block_str(block, "caption") {
         out.push(indented_line(
             indent,
@@ -458,10 +454,10 @@ fn sparkline_lines(block: &Value, indent: usize, theme: &Theme) -> Vec<Line<'sta
     out
 }
 
-/// Ascending `(at, tone)` thresholds from a sparkline's `bands`. Malformed or
-/// missing yields none, so coloring falls back to the block's single `tone`.
+/// `(at, tone)` thresholds from a sparkline's `bands`, in declared order.
+/// Malformed or missing yields none, so coloring falls back to the single `tone`.
 fn parse_bands(block: &Value) -> Vec<(f64, Tone)> {
-    let mut bands: Vec<(f64, Tone)> = block
+    block
         .get("bands")
         .and_then(Value::as_array)
         .map(|arr| {
@@ -475,17 +471,15 @@ fn parse_bands(block: &Value) -> Vec<(f64, Tone)> {
                 })
                 .collect()
         })
-        .unwrap_or_default();
-    bands.sort_by(|a, b| a.0.total_cmp(&b.0));
-    bands
+        .unwrap_or_default()
 }
 
 /// The tone of the highest band `value` reaches, or `None` if it clears none.
 fn band_tone(bands: &[(f64, Tone)], value: f64) -> Option<Tone> {
     bands
         .iter()
-        .rev()
-        .find(|(at, _)| value >= *at)
+        .filter(|(at, _)| value >= *at)
+        .max_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, tone)| *tone)
 }
 
