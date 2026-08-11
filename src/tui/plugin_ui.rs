@@ -395,12 +395,18 @@ fn bar_lines(block: &Value, indent: usize, theme: &Theme) -> Vec<Line<'static>> 
 const SPARK_GLYPHS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
 /// `sparkline`: a history plot as a run of block-eighths glyphs, one per value,
-/// scaled against `max` (defaults to the data's own max), tone-colored, with an
-/// optional caption below. This is the block the built-in memory strip needs
-/// that the vocabulary lacks today (`bar` is a proportion, not a series).
-/// Wire shape: `{ kind: "sparkline", values: [f64], max?: f64, tone?, caption? }`.
-/// Unknown fields are ignored (forward-compatible); an empty/missing series
-/// renders nothing.
+/// scaled against `max`, with an optional caption below. The block the built-in
+/// memory strip needs that the vocabulary lacks (`bar` is a proportion, not a
+/// series). Wire shape:
+/// `{ kind: "sparkline", values: [f64], max?: f64, tone?, bands?, caption? }`.
+///
+/// Coloring: `bands: [{ at: f64, tone }]` colors each glyph by the highest `at`
+/// threshold its value meets, so a series can change color as it climbs (what
+/// the built-in strip does with memory pressure). Without `bands`, the whole
+/// series takes the single `tone`. Provide `max` for a stable vertical scale;
+/// it defaults to the data's own max, which rescales as the window changes.
+/// Unknown fields are ignored (forward-compatible); an empty series renders
+/// nothing.
 fn sparkline_lines(block: &Value, indent: usize, theme: &Theme) -> Vec<Line<'static>> {
     let values: Vec<f64> = block
         .get("values")
@@ -422,19 +428,26 @@ fn sparkline_lines(block: &Value, indent: usize, theme: &Theme) -> Vec<Line<'sta
         .filter(|m| *m > 0.0)
         .unwrap_or(data_max)
         .max(f64::MIN_POSITIVE);
-    let glyphs: String = values
+    let bands = parse_bands(block);
+    let base_tone = block_tone(block);
+
+    let spans: Vec<Span<'static>> = values
         .iter()
         .map(|&v| {
             let frac = (v / max).clamp(0.0, 1.0);
             let idx = ((frac * (SPARK_GLYPHS.len() as f64 - 1.0)).round()) as usize;
-            SPARK_GLYPHS[idx.min(SPARK_GLYPHS.len() - 1)]
+            let glyph = SPARK_GLYPHS[idx.min(SPARK_GLYPHS.len() - 1)];
+            let tone = band_tone(&bands, v).or(base_tone);
+            Span::styled(glyph.to_string(), tone_style(tone, theme))
         })
         .collect();
-    let mut out = vec![indented_line(
-        indent,
-        glyphs,
-        tone_style(block_tone(block), theme),
-    )];
+    let mut line = Vec::with_capacity(spans.len() + 1);
+    if indent > 0 {
+        line.push(Span::raw(" ".repeat(indent)));
+    }
+    line.extend(spans);
+
+    let mut out = vec![Line::from(line)];
     if let Some(caption) = block_str(block, "caption") {
         out.push(indented_line(
             indent,
@@ -443,6 +456,37 @@ fn sparkline_lines(block: &Value, indent: usize, theme: &Theme) -> Vec<Line<'sta
         ));
     }
     out
+}
+
+/// Ascending `(at, tone)` thresholds from a sparkline's `bands`. Malformed or
+/// missing yields none, so coloring falls back to the block's single `tone`.
+fn parse_bands(block: &Value) -> Vec<(f64, Tone)> {
+    let mut bands: Vec<(f64, Tone)> = block
+        .get("bands")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|b| {
+                    let at = b
+                        .get("at")
+                        .and_then(Value::as_f64)
+                        .filter(|a| a.is_finite())?;
+                    Some((at, block_tone(b)?))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    bands.sort_by(|a, b| a.0.total_cmp(&b.0));
+    bands
+}
+
+/// The tone of the highest band `value` reaches, or `None` if it clears none.
+fn band_tone(bands: &[(f64, Tone)], value: f64) -> Option<Tone> {
+    bands
+        .iter()
+        .rev()
+        .find(|(at, _)| value >= *at)
+        .map(|(_, tone)| *tone)
 }
 
 /// Lay the segments out over [`BAR_WIDTH`] cells. Every positive segment gets at
@@ -1238,6 +1282,31 @@ mod tests {
             &theme,
         );
         assert_eq!(texts(&capped), vec!["▅█"]);
+    }
+
+    #[test]
+    fn sparkline_bands_color_each_glyph_by_the_threshold_it_reaches() {
+        let theme = Theme::default();
+        // Values climb across two thresholds; each glyph takes the highest band
+        // it reaches (10 -> none/base, 70 -> warn, 95 -> danger).
+        let lines = sparkline_lines(
+            &json!({"kind": "sparkline", "values": [10, 70, 95], "max": 100,
+                    "bands": [{"at": 70, "tone": "warn"}, {"at": 90, "tone": "danger"}]}),
+            0,
+            &theme,
+        );
+        let spans = &lines[0].spans;
+        assert_eq!(spans.len(), 3, "one span per sample for per-glyph coloring");
+        assert_eq!(
+            spans[0].style.fg,
+            tone_style(None, &theme).fg,
+            "below all bands: base tone"
+        );
+        assert_eq!(spans[1].style.fg, tone_style(Some(Tone::Warn), &theme).fg);
+        assert_eq!(spans[2].style.fg, tone_style(Some(Tone::Danger), &theme).fg);
+        // Bands are optional; malformed/missing falls back to the single tone.
+        assert!(parse_bands(&json!({"kind": "sparkline", "values": [1]})).is_empty());
+        assert!(band_tone(&[], 5.0).is_none());
     }
 
     #[test]
