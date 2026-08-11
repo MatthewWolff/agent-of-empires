@@ -156,6 +156,24 @@ pub fn pane_lines(snapshot: &UiSnapshot, session_id: &str, theme: &Theme) -> Vec
     out
 }
 
+/// Prototype: render global `HomePane` entries (no session_id) with the same
+/// block vocabulary as a session `Pane`. This is the reusable global-docked-pane
+/// surface a diagnostics-style plugin targets in the plain home view.
+pub fn home_pane_lines(snapshot: &UiSnapshot, theme: &Theme) -> Vec<Line<'static>> {
+    let mut out: Vec<Line<'static>> = Vec::new();
+    for entry in global_entries(snapshot, UiSlot::HomePane) {
+        let lines = pane_entry_lines(entry, theme);
+        if lines.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push(Line::default());
+        }
+        out.extend(lines);
+    }
+    out
+}
+
 /// One pane entry: a heading naming the pane, then an ordered `blocks` list when
 /// present, else the simple `{ title, body }` form (matching the web renderer's
 /// precedence). The web shows the pane's name on its dock tab and so skips
@@ -288,6 +306,7 @@ fn block_lines(block: &Value, indent: usize, theme: &Theme) -> Vec<Line<'static>
         Some("section") => section_lines(block, indent, theme),
         Some("callout") => callout_lines(block, indent, theme),
         Some("bar") => bar_lines(block, indent, theme),
+        Some("sparkline") => sparkline_lines(block, indent, theme),
         // The terminal has no side-by-side layout, so a `columns` block degrades
         // to its children stacked at the same indent, in order.
         Some("columns") => match block.get("children").and_then(Value::as_array) {
@@ -361,6 +380,61 @@ fn bar_lines(block: &Value, indent: usize, theme: &Theme) -> Vec<Line<'static>> 
         return vec![];
     }
     let mut out = vec![Line::from(bar_spans(&segments, indent, theme))];
+    if let Some(caption) = block_str(block, "caption") {
+        out.push(indented_line(
+            indent,
+            caption.to_string(),
+            Style::default().fg(theme.dimmed),
+        ));
+    }
+    out
+}
+
+/// The eight block-fill glyphs, index 0 (lowest) to 7 (full). Prototype
+/// `sparkline` renderer shares this ramp with the built-in diagnostics widget.
+const SPARK_GLYPHS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+/// `sparkline`: a history plot as a run of block-eighths glyphs, one per value,
+/// scaled against `max` (defaults to the data's own max), tone-colored, with an
+/// optional caption below. This is the block the built-in memory strip needs
+/// that the vocabulary lacks today (`bar` is a proportion, not a series).
+/// Wire shape: `{ kind: "sparkline", values: [f64], max?: f64, tone?, caption? }`.
+/// Unknown fields are ignored (forward-compatible); an empty/missing series
+/// renders nothing.
+fn sparkline_lines(block: &Value, indent: usize, theme: &Theme) -> Vec<Line<'static>> {
+    let values: Vec<f64> = block
+        .get("values")
+        .and_then(Value::as_array)
+        .map(|vs| {
+            vs.iter()
+                .filter_map(Value::as_f64)
+                .filter(|v| v.is_finite())
+                .collect()
+        })
+        .unwrap_or_default();
+    if values.is_empty() {
+        return vec![];
+    }
+    let data_max = values.iter().cloned().fold(0.0_f64, f64::max);
+    let max = block
+        .get("max")
+        .and_then(Value::as_f64)
+        .filter(|m| *m > 0.0)
+        .unwrap_or(data_max)
+        .max(f64::MIN_POSITIVE);
+    let glyphs: String = values
+        .iter()
+        .map(|&v| {
+            let frac = (v / max).clamp(0.0, 1.0);
+            let idx = ((frac * (SPARK_GLYPHS.len() as f64 - 1.0)).round()) as usize;
+            SPARK_GLYPHS[idx.min(SPARK_GLYPHS.len() - 1)]
+        })
+        .collect();
+    let mut out = vec![indented_line(
+        indent,
+        glyphs,
+        tone_style(block_tone(block), theme),
+    )];
     if let Some(caption) = block_str(block, "caption") {
         out.push(indented_line(
             indent,
@@ -1117,6 +1191,53 @@ mod tests {
         assert!(!t.iter().any(|l| l.contains("orphan")), "{t:?}");
         assert_eq!(t[1], "  unresolved");
         assert_eq!(t[2], "no author");
+    }
+
+    #[test]
+    fn home_pane_renders_a_global_sparkline_entry() {
+        // Prototype: a global HomePane (no session_id) carrying a sparkline
+        // block renders heading + glyph row + caption through home_pane_lines,
+        // proving the whole payload -> render path for the diagnostics plugin.
+        let snap = pane_snapshot(json!([
+            {"plugin_id": "diag", "slot": "home-pane", "id": "mem",
+             "payload": {"title": "memory", "blocks": [
+                 {"kind": "sparkline", "values": [0, 250, 500, 750, 1000], "max": 1000,
+                  "tone": "warn", "caption": "64% 22.7/32G"},
+                 {"kind": "row", "label": "agents", "value": "7"}
+             ]}}
+        ]));
+        let lines = home_pane_lines(&snap, &Theme::default());
+        let t = texts(&lines);
+        assert_eq!(t[0], "memory", "heading falls back to the pane title");
+        // Five values across 0..max, each frac rounded onto the 8-glyph ramp:
+        // 0, .25*7=1.75->2, .5*7=3.5->4, .75*7=5.25->5, full->7.
+        assert_eq!(t[1], "▁▃▅▆█");
+        assert_eq!(t[2], "64% 22.7/32G");
+        assert!(t.iter().any(|l| l.contains("agents") && l.contains("7")));
+    }
+
+    #[test]
+    fn sparkline_block_maps_values_onto_the_glyph_ramp() {
+        let theme = Theme::default();
+        // Empty / missing series renders nothing.
+        assert!(sparkline_lines(&json!({"kind": "sparkline", "values": []}), 0, &theme).is_empty());
+        assert!(sparkline_lines(&json!({"kind": "sparkline"}), 0, &theme).is_empty());
+        // Without an explicit max, the data's own max pins the top glyph
+        // (4/8=.5 -> .5*7=3.5 -> round 4 -> the 5th ramp glyph).
+        let lines = sparkline_lines(
+            &json!({"kind": "sparkline", "values": [0.0, 4.0, 8.0]}),
+            0,
+            &theme,
+        );
+        assert_eq!(texts(&lines), vec!["▁▅█"]);
+        // Values above max clamp to full rather than overflowing the ramp
+        // (50/100=.5 -> 4th index; 200 clamps to full).
+        let capped = sparkline_lines(
+            &json!({"kind": "sparkline", "values": [50, 200], "max": 100}),
+            0,
+            &theme,
+        );
+        assert_eq!(texts(&capped), vec!["▅█"]);
     }
 
     #[test]
