@@ -736,6 +736,12 @@ pub enum UiSlot {
     /// target-keyed list so one entry can badge every MCP server or skill the
     /// plugin knows about; the host renders the pill on the matching card.
     ToolCardBadge,
+    /// A host-wide docked pane on the home view (global), carrying the same
+    /// `blocks` vocabulary as `Pane` but not tied to any session. The host
+    /// docks it under the session list. (Prototype: the reusable slot a
+    /// diagnostics-style plugin needs; `Pane` is per-session and `Card` is
+    /// text-only, so neither fits a machine-wide docked panel.)
+    HomePane,
     /// A transient notification, pushed via `ui.notify` (gated by the
     /// `notifications` capability rather than a slot declaration).
     Notification,
@@ -772,6 +778,7 @@ impl UiSlot {
             UiSlot::DetailBadge => "detail-badge",
             UiSlot::SettingsPage => "settings-page",
             UiSlot::ToolCardBadge => "tool-card-badge",
+            UiSlot::HomePane => "home-pane",
             UiSlot::Notification => "notification",
         }
     }

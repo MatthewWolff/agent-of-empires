@@ -817,7 +817,7 @@ impl UiStore {
 /// it gets a larger budget than the small single-value slots.
 fn max_payload_bytes(slot: UiSlot) -> usize {
     match slot {
-        UiSlot::Pane | UiSlot::SettingsPage => MAX_PANE_PAYLOAD_BYTES,
+        UiSlot::Pane | UiSlot::HomePane | UiSlot::SettingsPage => MAX_PANE_PAYLOAD_BYTES,
         UiSlot::ComposerAction => MAX_COMPOSER_ACTION_PAYLOAD_BYTES,
         _ => MAX_PAYLOAD_BYTES,
     }
@@ -890,7 +890,7 @@ fn validate_payload(slot: UiSlot, raw: &Value) -> Result<Value, String> {
         UiSlot::SortKey => normalize::<SortKeyPayload>(raw),
         UiSlot::FilterFacet => normalize::<FilterFacetPayload>(raw),
         UiSlot::Card => normalize::<CardPayload>(raw),
-        UiSlot::Pane => {
+        UiSlot::Pane | UiSlot::HomePane => {
             let parsed: PanePayload =
                 serde_json::from_value(raw.clone()).map_err(|e| e.to_string())?;
             check_block_depth(parsed.blocks.as_deref())?;
