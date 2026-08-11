@@ -1111,6 +1111,29 @@ mod tests {
             ),
             Err(UiError::BadRequest(_))
         ));
+        // HomePane is global: a session_id is rejected, and a session-less push
+        // is accepted (and validated through the shared Pane payload arm).
+        assert!(matches!(
+            s.set(
+                "acme.kit",
+                g,
+                UiSlot::HomePane,
+                "mem",
+                Some("s1"),
+                &json!({"title": "memory"})
+            ),
+            Err(UiError::BadRequest(_))
+        ));
+        assert!(s
+            .set(
+                "acme.kit",
+                g,
+                UiSlot::HomePane,
+                "mem",
+                None,
+                &json!({"title": "memory", "blocks": [{"kind": "sparkline", "values": [1, 2]}]})
+            )
+            .is_ok());
         // Notification is not a ui.state.set target.
         assert!(matches!(
             s.set(

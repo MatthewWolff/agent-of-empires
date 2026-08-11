@@ -2,8 +2,9 @@
 //! native TUI (#2402). Mirrors the web selectors in `web/src/lib/pluginUi.ts`,
 //! narrowed to what a terminal can render: the structured view shows
 //! `StatusBar` (global) and `DetailBadge` (per-session) text, tone-colored,
-//! plus `Notification` toasts, and `Pane` blocks in a toggleable overlay
-//! (#2467); the remote-home picker shows `RowColumn` text per session row
+//! plus `Notification` toasts, and `Pane` (per session) and `HomePane` (global)
+//! blocks in a toggleable overlay (#2467); the remote-home picker shows
+//! `RowColumn` text per session row
 //! (#2948). Icons, tooltips, hrefs, and the
 //! `Card`/`RowBadge`/`SortKey`/`FilterFacet`/`SettingsPage`/
 //! `ToolCardBadge` slots have no TUI surface here and are ignored (a terminal
