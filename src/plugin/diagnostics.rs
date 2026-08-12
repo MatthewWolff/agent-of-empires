@@ -35,9 +35,13 @@ pub fn run(profile: String) -> anyhow::Result<()> {
 
     let mut history: VecDeque<f64> = VecDeque::with_capacity(HISTORY_LEN);
     let mut out = std::io::stdout();
+    // The storage handle is stable across ticks; open it once (retrying while
+    // it can't be resolved, e.g. a profile that appears after startup) so only
+    // the per-tick `load()` re-reads sessions.json.
+    let mut storage: Option<Storage> = None;
     loop {
         let mem = sample_memory();
-        let counts = load_counts(&profile);
+        let counts = sample_counts(&mut storage, &profile);
         if history.len() == HISTORY_LEN {
             history.pop_front();
         }
@@ -65,12 +69,17 @@ fn drain_stdin() {
 
 /// Count agents/procs for `profile`, degrading to zero counts (not an error)
 /// when storage cannot be read: a diagnostics tick should never crash the
-/// worker over a transient read.
-fn load_counts(profile: &str) -> AgentCounts {
-    match Storage::open_unwatched(profile).and_then(|s| s.load()) {
-        Ok(instances) => count_running_agents(&instances),
-        Err(_) => AgentCounts::default(),
+/// worker over a transient read. Opens `storage` lazily and reuses the handle;
+/// only `load()` (the `sessions.json` read) repeats each tick.
+fn sample_counts(storage: &mut Option<Storage>, profile: &str) -> AgentCounts {
+    if storage.is_none() {
+        *storage = Storage::open_unwatched(profile).ok();
     }
+    storage
+        .as_ref()
+        .and_then(|s| s.load().ok())
+        .map(|instances| count_running_agents(&instances))
+        .unwrap_or_default()
 }
 
 /// Build the `home-pane` payload: a memory-headroom sparkline banded at the
