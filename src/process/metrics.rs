@@ -1,4 +1,5 @@
-//! System memory + agent-count sampling for the TUI diagnostics strip.
+//! System memory + agent-count sampling for the diagnostics surfaces (the TUI
+//! strip and the `aoe.diagnostics` worker plugin).
 //!
 //! The strip answers one question: how close is the machine to a memory
 //! thrash, and how many agents/processes are driving it. The headline signal
