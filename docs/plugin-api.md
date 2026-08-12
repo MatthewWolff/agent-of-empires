@@ -357,6 +357,7 @@ id = "my_pane"
 | `row-column` | per-session | A text column on the session row. |
 | `detail-badge` | per-session | A badge in the session detail view. |
 | `pane` | per-session | A dockable tool-window pane (requires `api_version >= 3`). See [Pane payload](#pane-payload). |
+| `home-pane` | global | A host-wide docked pane on the dashboard overview and the structured-view pane overlay, carrying the same block vocabulary as `pane` but session-less (requires `api_version >= 13`). Several plugins' home panes stack in snapshot order. |
 | `settings-page` | global | A full page under Settings, using the same block vocabulary as `pane` (requires `api_version >= 10`). |
 | `composer-action` | per-session | A button beside the ACP composer controls (requires `api_version >= 8`). |
 | `tool-card-badge` | per-session | A pill on a transcript MCP or skill tool-call card, matched by target (requires `api_version >= 10`). |
@@ -408,6 +409,7 @@ anything to attach to).
 | `section` | | `title`, `children`, `value`, `value_tone`, `badges`, `icon`, `tone`, `boxed`, `scroll`, `collapsible`, `collapsed` |
 | `callout` | one of `title` / `detail` | `icon`, `tone`, `color`, `actions` |
 | `bar` | `segments` | `caption` |
+| `sparkline` | `values` | `max`, `tone`, `bands`, `caption` (requires `api_version >= 13`) |
 | `columns` | `children` | |
 | `action` | `label`, plus one of `method` / `href` / `disabled` | `icon`, `tone`, `tooltip`, `variant` |
 | `comment` | one of `author` / `body` | `path`, `line`, `resolved`, `href` |
@@ -441,6 +443,14 @@ pane is telling the user; use a `section` for a list.
 **`bar`** is a proportional stacked bar over `segments`, each
 `{ value, tone?, color?, label? }`. Segments without a positive numeric `value` are
 dropped, and a bar left with nothing renders nothing. `caption` sits beneath it.
+
+**`sparkline`** plots `values` (an array of numbers, oldest first) as a compact
+history line. `max` fixes the top of the scale (default: the largest value), so a
+series plots against a stable ceiling instead of auto-scaling each refresh; a
+single `tone` colors the whole line. `bands` is a list of `{ at, tone }`
+thresholds that recolor each sample by the highest band its value reaches, for a
+green/amber/red pressure line. `caption` sits beneath. An empty `values` renders
+nothing.
 
 **`columns`** lays its `children` side by side in equal fractions. A single child
 spans the full width, so eliding one card collapses the row cleanly rather than
