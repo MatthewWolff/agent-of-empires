@@ -162,6 +162,15 @@ describe("plugin slot renderers", () => {
     expect(screen.getByTestId("plugin-pane-sparkline")).toBeTruthy();
   });
 
+  it("home-pane renders the simple title/body form's title exactly once", () => {
+    // The card chrome renders the title; the body must not repeat it for the
+    // block-less {title, body} payload.
+    set([{ plugin_id: "acme.disk", slot: "home-pane", id: "d", payload: { title: "Disk", body: "42% used" } }]);
+    render(<PluginHomePanes />);
+    expect(screen.getAllByText("Disk")).toHaveLength(1);
+    expect(screen.getByText("42% used")).toBeTruthy();
+  });
+
   it("pane action button forwards the named worker method", async () => {
     const entry: PluginUiEntry = {
       plugin_id: "acme.kit",

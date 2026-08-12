@@ -279,7 +279,7 @@ export function PluginHomePanes() {
               {payloadStr(e, "title")}
             </div>
           )}
-          <PluginPaneBody entry={e} />
+          <PluginPaneBody entry={e} titleInChrome />
         </div>
       ))}
     </div>
@@ -1168,9 +1168,17 @@ function BlockSection({
  *  list (the flexible, forward-compatible form) or the simple `{ title, body }`
  *  form. The dock supplies the frame (title bar, move, close) and the
  *  `default_location`; this renders only the scrollable content. */
-export function PluginPaneBody({ entry }: { entry: PluginUiEntry }) {
+export function PluginPaneBody({
+  entry,
+  titleInChrome = false,
+}: {
+  entry: PluginUiEntry;
+  /** The caller's chrome already renders the payload title (the home-pane card
+   *  header), so the simple `{title, body}` form must not repeat it. */
+  titleInChrome?: boolean;
+}) {
   const blocks = objectList(entry.payload, "blocks");
-  const title = payloadStr(entry, "title");
+  const title = titleInChrome ? undefined : payloadStr(entry, "title");
   const body = payloadStr(entry, "body");
   const footer = isObject(entry.payload.footer) ? entry.payload.footer : undefined;
   // A background poll only flips this once it outlasts the indicator delay, so
