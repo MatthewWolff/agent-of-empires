@@ -42,10 +42,7 @@ pub fn run(profile: String) -> anyhow::Result<()> {
     loop {
         let mem = sample_memory();
         let counts = sample_counts(&mut storage, &profile);
-        if history.len() == HISTORY_LEN {
-            history.pop_front();
-        }
-        history.push_back(mem.used_fraction());
+        record_sample(&mut history, &mem);
 
         let payload = home_pane_payload(history.make_contiguous(), &mem, &counts);
         let line = ui_state_set_line("home-pane", "memory", payload);
@@ -57,6 +54,19 @@ pub fn run(profile: String) -> anyhow::Result<()> {
         std::thread::sleep(Duration::from_secs(REFRESH_SECS));
     }
     Ok(())
+}
+
+/// Append this tick's headroom sample, capped at `HISTORY_LEN`. A failed read
+/// (`total_bytes == 0`) records nothing: an unknown reading is absent, not
+/// zero, so it must not plot a false 0% dip that lingers across the window.
+fn record_sample(history: &mut VecDeque<f64>, mem: &MemorySample) {
+    if mem.total_bytes == 0 {
+        return;
+    }
+    if history.len() == HISTORY_LEN {
+        history.pop_front();
+    }
+    history.push_back(mem.used_fraction());
 }
 
 fn drain_stdin() {
@@ -185,6 +195,23 @@ mod tests {
     fn caption_reports_unavailable_when_ram_unknown() {
         let payload = home_pane_payload(&[0.0], &MemorySample::default(), &AgentCounts::default());
         assert_eq!(payload["blocks"][0]["caption"], "memory unavailable");
+    }
+
+    #[test]
+    fn record_sample_skips_unavailable_readings_and_caps_history() {
+        let mut history = VecDeque::new();
+        record_sample(&mut history, &mem_at(0.5));
+        // A failed read records nothing rather than a false 0% dip.
+        record_sample(&mut history, &MemorySample::default());
+        record_sample(&mut history, &mem_at(0.6));
+        assert_eq!(history.len(), 2);
+        assert_eq!(*history.front().unwrap(), 0.5);
+        assert_eq!(*history.back().unwrap(), 0.6);
+
+        for _ in 0..HISTORY_LEN {
+            record_sample(&mut history, &mem_at(0.4));
+        }
+        assert_eq!(history.len(), HISTORY_LEN);
     }
 
     #[test]
