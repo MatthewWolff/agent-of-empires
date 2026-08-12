@@ -5,9 +5,11 @@
 //! program path. This module is the single place that branching lives: a
 //! `Command` runtime resolves its `argv[0]` on `PATH` or inside the plugin
 //! directory; a `ReleaseBinary` runtime points at the per-platform binary
-//! installation already placed in the plugin directory. Adding a new runtime
-//! kind later is a new match arm in [`resolve_launch`], not a rewrite of the
-//! supervisor or the transport: they only ever see a [`ResolvedLaunch`].
+//! installation already placed in the plugin directory; a `SelfExec` runtime
+//! (built-ins only) runs the host binary itself with a hidden subcommand, so
+//! it needs no plugin directory. Adding a new runtime kind later is a new
+//! match arm in [`resolve_launch`], not a rewrite of the supervisor or the
+//! transport: they only ever see a [`ResolvedLaunch`].
 //!
 //! Resolution is language-agnostic. The Python reference plugin declares a
 //! console-script entrypoint (`aoe-github-worker`) or an interpreter

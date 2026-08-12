@@ -600,7 +600,8 @@ caption = "Live status in the pane."
 ## Runtime
 
 The worker the host spawns and supervises. Omit it for a static, metadata-only
-plugin. Two kinds.
+plugin. Two kinds for installed plugins (built-in plugins additionally have an
+internal self-exec runtime that runs the host binary itself).
 
 ### Command
 
