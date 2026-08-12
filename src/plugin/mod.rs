@@ -44,6 +44,12 @@ pub mod ui_state;
 // so it is not gated.
 pub mod launch;
 
+// The built-in diagnostics worker (`aoe __plugin-diagnostics`). Not gated: it
+// samples in-process with no host dependency, like the other `aoe __*` worker
+// entrypoints. Only its registration as a plugin (in `registry`) is serve-gated,
+// since the host that spawns it runs under `aoe serve`.
+pub mod diagnostics;
+
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 

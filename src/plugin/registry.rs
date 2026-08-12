@@ -56,9 +56,9 @@ pub struct BuiltinPlugin {
     pub manifest_toml: &'static str,
 }
 
-/// First-party plugins bundled with the binary. Deliberately minimal while the
-/// system is proven out: just the `aoe.web` dashboard marker (under `serve`).
-/// More land as each piece is verified.
+/// First-party plugins bundled with the binary: the `aoe.web` dashboard marker
+/// and the `aoe.diagnostics` worker, both under `serve`. A TUI-only build has
+/// an empty builtin set.
 pub static BUILTINS: &[BuiltinPlugin] = &[
     // The web dashboard's management marker is present whenever the dashboard
     // is compiled in (`feature = "serve"`), so serve and release builds always
@@ -66,6 +66,12 @@ pub static BUILTINS: &[BuiltinPlugin] = &[
     #[cfg(feature = "serve")]
     BuiltinPlugin {
         manifest_toml: include_str!("../../plugins/aoe-web/aoe-plugin.toml"),
+    },
+    // The diagnostics worker samples memory + agent counts and pushes them to
+    // the home-pane slot; it runs a self-exec worker, so it needs the daemon.
+    #[cfg(feature = "serve")]
+    BuiltinPlugin {
+        manifest_toml: include_str!("../../plugins/aoe-diagnostics/aoe-plugin.toml"),
     },
 ];
 

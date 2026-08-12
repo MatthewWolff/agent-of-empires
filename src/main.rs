@@ -449,6 +449,7 @@ async fn run(
         Some(Commands::Acp { command }) => cli::acp::run(command).await,
         #[cfg(feature = "serve")]
         Some(Commands::AcpRunner(args)) => agent_of_empires::process::runner::run(*args).await,
+        Some(Commands::PluginDiagnostics) => agent_of_empires::plugin::diagnostics::run(profile),
         None => {
             // Fold the drift notice into the existing startup-warning channel
             // so the TUI surfaces both (debug-log + drift, if both fire) in a

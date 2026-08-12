@@ -1,0 +1,21 @@
+# First-party diagnostics worker plugin.
+#
+# Samples system memory and the AoE-managed agent/process counts once a second
+# and pushes them to the global home-pane slot as a memory-over-time sparkline
+# plus a count readout. The worker is the `aoe` binary re-invoked through the
+# self-exec runtime, so it needs no capability beyond `runtime.worker`.
+
+id = "aoe.diagnostics"
+name = "Diagnostics"
+version = "1.0.0"
+api_version = 13
+description = "Shows system memory pressure over time and the number of running agents and processes on the dashboard."
+capabilities = ["runtime.worker"]
+
+[[ui]]
+slot = "home-pane"
+id = "memory"
+
+[runtime]
+kind = "self-exec"
+subcommand = "__plugin-diagnostics"
