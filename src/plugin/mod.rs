@@ -26,6 +26,8 @@ pub mod view;
 #[cfg(feature = "serve")]
 pub(crate) mod automation_policy;
 #[cfg(feature = "serve")]
+pub mod diagnostics;
+#[cfg(feature = "serve")]
 pub mod host;
 #[cfg(feature = "serve")]
 pub mod host_api;
