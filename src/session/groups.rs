@@ -1244,11 +1244,17 @@ pub fn append_archived_section_by_project(
 /// ahead of every real project instead of landing at `s` (#3237).
 fn sort_archived_project_buckets(buckets: &mut [(String, Vec<&Instance>)], sort_order: SortOrder) {
     match sort_order {
+        // Break ties on the raw identity key: the synthetic scratch sentinel
+        // and a real repo named `scratch` share the "scratch" display label, so
+        // without a secondary key their order would follow arbitrary HashMap
+        // iteration and flip between runs.
         SortOrder::AZ => {
-            buckets.sort_by_key(|b| project_group_display_name(&b.0).to_lowercase());
+            buckets.sort_by_key(|b| (project_group_display_name(&b.0).to_lowercase(), b.0.clone()));
         }
         SortOrder::ZA => {
-            buckets.sort_by_key(|b| Reverse(project_group_display_name(&b.0).to_lowercase()));
+            buckets.sort_by_key(|b| {
+                Reverse((project_group_display_name(&b.0).to_lowercase(), b.0.clone()))
+            });
         }
         SortOrder::Oldest => {
             buckets.sort_by_key(|(_, sessions)| {
@@ -2923,28 +2929,42 @@ mod tests {
 
     /// #3237: the scratch bucket's key is a sentinel, so name-ordering the
     /// archived sub-folders on the raw key would sort it under `_` and hoist
-    /// it above every real project. It must sort where its label reads.
+    /// it above every real project. It must sort where its label reads. When a
+    /// real repo named `scratch` is also archived, both buckets share the
+    /// "scratch" display label, so the raw identity key breaks the tie
+    /// deterministically (HashMap iteration order is otherwise arbitrary).
     #[test]
     fn archived_project_buckets_name_sort_uses_display_label() {
         let myrepo = Instance::new("a", "/repos/myrepo");
         let throwaway = Instance::new("b", "/app/scratch/x");
+        let real_scratch = Instance::new("d", "/repos/scratch");
         let zeta = Instance::new("c", "/repos/zeta");
+        // Expected raw-key order. The sentinel (`__aoe_scratch_group__`) and
+        // the real `scratch` repo tie on the lowercased label "scratch"; the
+        // raw key breaks it (`_` < `s`), so AZ puts the sentinel first and ZA
+        // reverses the pair.
         let cases = [
-            (SortOrder::AZ, ["myrepo", SCRATCH_GROUP_NAME, "zeta"]),
-            (SortOrder::ZA, ["zeta", SCRATCH_GROUP_NAME, "myrepo"]),
+            (
+                SortOrder::AZ,
+                ["myrepo", SCRATCH_GROUP_PATH, "scratch", "zeta"],
+            ),
+            (
+                SortOrder::ZA,
+                ["zeta", "scratch", SCRATCH_GROUP_PATH, "myrepo"],
+            ),
         ];
         for (order, expected) in cases {
+            // Insert in an order neither AZ nor ZA would produce, so a missing
+            // tie-breaker surfaces as a failure rather than passing by luck.
             let mut buckets: Vec<(String, Vec<&Instance>)> = vec![
+                ("scratch".to_string(), vec![&real_scratch]),
                 ("myrepo".to_string(), vec![&myrepo]),
                 (SCRATCH_GROUP_PATH.to_string(), vec![&throwaway]),
                 ("zeta".to_string(), vec![&zeta]),
             ];
             sort_archived_project_buckets(&mut buckets, order);
-            let labels: Vec<&str> = buckets
-                .iter()
-                .map(|b| project_group_display_name(&b.0))
-                .collect();
-            assert_eq!(labels, expected, "{order:?}");
+            let keys: Vec<&str> = buckets.iter().map(|b| b.0.as_str()).collect();
+            assert_eq!(keys, expected, "{order:?}");
         }
     }
 }
